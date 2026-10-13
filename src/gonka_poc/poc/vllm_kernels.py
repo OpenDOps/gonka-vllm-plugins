@@ -64,6 +64,10 @@ if triton is not None:
                             NG: tl.constexpr, BM: tl.constexpr, PACKED: tl.constexpr, eps,
                             fp8_max, fp8_min):
         G: tl.constexpr = 128
+        # inductor passes Python floats to user kernels as fp64; vLLM's kernel is fp32
+        eps = eps.to(tl.float32)
+        fp8_max = fp8_max.to(tl.float32)
+        fp8_min = fp8_min.to(tl.float32)
         pid_m = tl.program_id(0).to(tl.int64)
         pid_g = tl.program_id(1)
         rows = pid_m * BM + tl.arange(0, BM)
