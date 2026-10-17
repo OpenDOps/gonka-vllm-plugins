@@ -1,0 +1,98 @@
+# Prefill PoC image: MetaX S0 (vLLM 0.28 / MACA 3.8.2) + gonka-poc.
+# Does not apply overlays/vllm-0.28-decode. Decode is build-decode-poc.yml.
+# CPU build. The base image is ~20 GB, so this job uses the S0 self-hosted
+# runner. ubuntu-latest does not have the disk.
+
+name: Build prefill PoC image
+
+on:
+  workflow_dispatch:
+    inputs:
+      s0:
+        description: S0 base image (vLLM 0.28 / MACA 3.8.2)
+        required: true
+        default: ghcr.io/opendops/vllm-metax:0.28.0-maca3.8.2
+      tag:
+        description: Tag to publish
+        required: true
+        default: ghcr.io/opendops/vllm-poc-metax:0.28.0-maca3.8.2-spike
+      push:
+        description: Push the image to GHCR
+        type: boolean
+        default: true
+
+concurrency:
+  group: build-prefill-poc-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Disk snapshot
+        run: |
+          set -euo pipefail
+          df -h / /mnt/blockstorage 2>/dev/null || df -h
+          docker system df 2>/dev/null || true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.vllm-poc-metax-spike
+          platforms: linux/amd64
+          push: ${{ inputs.push }}
+          load: ${{ inputs.push == false }}
+          tags: ${{ inputs.tag }}
+          build-args: |
+            S0=${{ inputs.s0 }}
+          provenance: false
+
+      - name: Check install
+        run: |
+          set -euo pipefail
+          TAG='${{ inputs.tag }}'
+          if [ '${{ inputs.push }}' = 'true' ]; then
+            docker pull "$TAG"
+          fi
+          docker run --rm --entrypoint bash "$TAG" -lc '
+            python -c "import vllm, gonka_poc; print(vllm.__version__); print(gonka_poc.__file__)"
+            python -c "from gonka_poc._compat import current; current(); print(\"dispatch-ok\")"
+            python -c "import importlib.util; assert importlib.util.find_spec(\"vllm.poc\") is None, \"prefill image must not contain the decode overlay\""
+            command -v gonka-vllm-serve
+            python -c "import torch; print(torch.__version__, torch.__file__); assert \"metax\" in torch.__version__; assert \"nvidia\" not in torch.__file__"
+          '
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Prefill PoC image"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| S0 | \`${{ inputs.s0 }}\` |"
+            echo "| tag | \`${{ inputs.tag }}\` |"
+            echo "| digest | \`${{ steps.build.outputs.digest }}\` |"
+            echo "| pushed | \`${{ inputs.push }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

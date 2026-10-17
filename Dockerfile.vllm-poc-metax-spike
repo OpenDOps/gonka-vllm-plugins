@@ -1,0 +1,20 @@
+# Spike S2: MetaX S0 (vLLM 0.28 / MACA 3.8.2) + gonka-poc prefill.
+# v0.2.0 already dispatches (0, 28) to v0_28. Do not add a v0_26 shim.
+# Decode PoC is Dockerfile.vllm-decode-metax, not this file.
+ARG S0=ghcr.io/opendops/vllm-metax:0.28.0-maca3.8.2
+FROM ${S0}
+
+WORKDIR /tmp/gonka-vllm-plugins
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+# --no-deps: do not replace MetaX torch / vllm with a CUDA wheel.
+# aiohttp and scipy are the two runtime deps the plugin does not vendor.
+RUN uv pip install --python /opt/venv/bin/python --no-deps /tmp/gonka-vllm-plugins \
+ && uv pip install --python /opt/venv/bin/python "aiohttp>=3.9" "scipy>=1.10" \
+ && rm -rf /tmp/gonka-vllm-plugins
+
+ENV VLLM_ALLOW_INSECURE_SERIALIZATION=1
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /workspace
