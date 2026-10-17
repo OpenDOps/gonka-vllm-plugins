@@ -8,6 +8,10 @@ name: Build prefill PoC image
 on:
   workflow_dispatch:
     inputs:
+      git_ref:
+        description: Branch, tag, or SHA to build
+        required: true
+        default: c550-v0.28-decode
       s0:
         description: S0 base image (vLLM 0.28 / MACA 3.8.2)
         required: true
@@ -22,7 +26,7 @@ on:
         default: true
 
 concurrency:
-  group: build-prefill-poc-${{ github.ref }}
+  group: build-prefill-poc-${{ inputs.git_ref }}
   cancel-in-progress: true
 
 permissions:
@@ -42,6 +46,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -91,6 +97,7 @@ jobs:
             echo ""
             echo "| Field | Value |"
             echo "|-------|-------|"
+            echo "| git_ref | \`${{ inputs.git_ref }}\` |"
             echo "| S0 | \`${{ inputs.s0 }}\` |"
             echo "| tag | \`${{ inputs.tag }}\` |"
             echo "| digest | \`${{ steps.build.outputs.digest }}\` |"
