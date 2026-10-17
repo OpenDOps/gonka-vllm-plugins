@@ -42,6 +42,14 @@ Fails PRs that import `vllm.v1.*` outside `src/gonka_poc/_compat/` (the
 only blessed channel for upstream internals) or cite an `ADR-NNNN` with
 no matching file under `docs/adr/`.
 
+### `build-prefill-poc.yml` / `build-decode-poc.yml`
+
+Manual image builds on the S0 self-hosted runner. Prefill is
+`Dockerfile.vllm-poc-metax-spike`. Decode is `Dockerfile.vllm-decode-metax`
+(same base, plus `overlays/vllm-0.28-decode`). Neither compiles CUDA.
+`ubuntu-latest` does not have the disk for the base image. See the Phase 0.5
+build runbook in mlnode-foundry.
+
 ## What to do if contract tests fail
 
 See the "two hard rules" in [CONTRIBUTING.md](../../CONTRIBUTING.md):
