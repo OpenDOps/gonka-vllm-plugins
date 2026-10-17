@@ -1,0 +1,21 @@
+# Decode PoC on the MetaX S0 image (vLLM 0.28 / MACA 3.8.2).
+# Pin the built digest when the c550-v0.28.0 image is published.
+# The overlay is Python only. Do not compile it with nvcc or cucc.
+ARG S0=ghcr.io/opendops/vllm-metax:0.28.0-maca3.8.2
+FROM ${S0}
+
+WORKDIR /tmp/gonka-vllm-plugins
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY overlays/vllm-0.28-decode ./overlays/vllm-0.28-decode
+
+# --no-deps: do not replace MetaX torch / vllm with a CUDA wheel.
+RUN uv pip install --python /opt/venv/bin/python --no-deps /tmp/gonka-vllm-plugins \
+ && uv pip install --python /opt/venv/bin/python "aiohttp>=3.9" "scipy>=1.10" \
+ && /opt/venv/bin/python overlays/vllm-0.28-decode/apply.py \
+ && rm -rf /tmp/gonka-vllm-plugins
+
+ENV VLLM_ALLOW_INSECURE_SERIALIZATION=1
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /workspace
