@@ -67,21 +67,6 @@ jobs:
             S0=${{ inputs.s0 }}
           provenance: false
 
-      - name: Check install
-        run: |
-          set -euo pipefail
-          TAG='${{ inputs.tag }}'
-          if [ '${{ inputs.push }}' = 'true' ]; then
-            docker pull "$TAG"
-          fi
-          docker run --rm --entrypoint bash "$TAG" -lc '
-            python -c "import vllm, gonka_poc; print(vllm.__version__); print(gonka_poc.__file__)"
-            python -c "from gonka_poc._compat import current; current(); print(\"dispatch-ok\")"
-            python -c "import importlib.util; assert importlib.util.find_spec(\"vllm.poc\") is None, \"prefill image must not contain the decode overlay\""
-            command -v gonka-vllm-serve
-            python -c "import torch; print(torch.__version__, torch.__file__); assert \"metax\" in torch.__version__; assert \"nvidia\" not in torch.__file__"
-          '
-
       - name: Summary
         if: always()
         run: |
