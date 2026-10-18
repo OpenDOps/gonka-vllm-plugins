@@ -1,6 +1,8 @@
 # Decode PoC on the MetaX S0 image (vLLM 0.28 / MACA 3.8.2).
 # Pin the built digest when the c550-v0.28.0 image is published.
 # The overlay is Python only. Do not compile it with nvcc or cucc.
+# apply.py installs vllm.poc and the decode engine seams. Route mounting and
+# the positional model_tag -> model copy live in gonka-vllm-serve (src).
 ARG S0=ghcr.io/opendops/vllm-metax:0.28.0-maca3.8.2
 FROM ${S0}
 

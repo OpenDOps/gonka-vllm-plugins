@@ -12,8 +12,9 @@ This is a thin wrapper around the upstream public API:
 
 We do NOT patch any vLLM source file. We only:
   1. Build the stock FastAPI app via ``build_app(args, ...)``.
-  2. Leave the PoC router alone: ``build_app`` registers it itself in a vllm
-     build carrying the PoC engine seams.
+  2. Attach ``gonka_poc.poc.routes.router`` when ``build_app`` did not already
+     register ``/api/v1/pow``. Stock MetaX vLLM does not. A build that already
+     has those paths is left alone, so we do not register them twice.
   3. Install ``PoCGatingMiddleware`` AFTER ``build_app`` returns so it ends up
      OUTERMOST in Starlette's reverse-insertion order, gating the
      ``/v1/chat/completions`` and ``/v1/completions`` routes with 503 when PoC
@@ -45,6 +46,80 @@ from gonka_poc.entrypoint.gating import (
 
 logger = logging.getLogger("gonka_poc.entrypoint")
 
+_POC_PREFIX = "/api/v1/pow"
+
+
+def _pow_paths(app: FastAPI) -> list[str]:
+    """Return ``METHOD /api/v1/pow...`` for routes already on ``app``."""
+    found: list[str] = []
+    for route in app.routes:
+        path = getattr(route, "path", "") or ""
+        if not path.startswith(_POC_PREFIX):
+            continue
+        methods = sorted(getattr(route, "methods", None) or [])
+        found.append(f"{','.join(methods)} {path}" if methods else path)
+    return found
+
+
+def _attach_poc_router(app: FastAPI) -> None:
+    """Mount ``/api/v1/pow`` when stock ``build_app`` did not.
+
+    Logs the decision either way. Import or ``include_router`` failures are
+    logged with a traceback and do not take down chat serving.
+    """
+    try:
+        from gonka_poc.plugin import register
+
+        register()
+    except Exception:
+        logger.exception(
+            "PoC route attach: plugin.register() failed; continuing so the "
+            "log line below is still attempted"
+        )
+
+    existing = _pow_paths(app)
+    if existing:
+        logger.info(
+            "PoC routes already registered by build_app (%d); "
+            "not calling include_router: %s",
+            len(existing),
+            "; ".join(existing),
+        )
+        return
+
+    logger.info(
+        "PoC routes missing after build_app (no %s path on the app). "
+        "Stock vLLM does not register them. Attaching "
+        "gonka_poc.poc.routes.router",
+        _POC_PREFIX,
+    )
+    try:
+        from gonka_poc.poc.routes import router as poc_router
+    except Exception:
+        logger.exception(
+            "PoC routes not attached: import gonka_poc.poc.routes failed. "
+            "/api/v1/pow will 404"
+        )
+        return
+    try:
+        app.include_router(poc_router)
+    except Exception:
+        logger.exception(
+            "PoC routes not attached: app.include_router failed. "
+            "/api/v1/pow will 404"
+        )
+        return
+
+    attached = _pow_paths(app)
+    if not attached:
+        logger.error(
+            "PoC routes not attached: include_router returned but the app "
+            "still has no %s path",
+            _POC_PREFIX,
+        )
+        return
+    logger.info("PoC routes attached: %s", "; ".join(attached))
+
 
 def _interrupt_init(signum: int, frame: Any) -> None:  # pragma: no cover - signal path
     """SIGTERM handler mirroring upstream ``api_server._interrupt_init``.
@@ -61,13 +136,11 @@ def build_gonka_app(
     gate: PoCGate,
     blocked_prefixes: Optional[Iterable[str]] = None,
 ) -> FastAPI:
-    """Mutate the upstream-built FastAPI app: add the gating middleware.
+    """Mutate the upstream-built FastAPI app: mount PoC routes, then the gate.
 
-    The PoC router is NOT attached here: ``build_app`` registers it itself in
-    a vllm build carrying the PoC engine seams. Attaching it again would put
-    a second copy of every ``/api/v1/pow/*`` route on the app, via
-    ``include_router`` -- the exact path the seam avoids because FastAPI's
-    ``_IncludedRouter`` breaks prometheus route-name lookup.
+    Stock MetaX vLLM ``build_app`` does not register ``/api/v1/pow``. Attach
+    the plugin router in that case. If a vLLM build already registered those
+    paths, skip ``include_router`` so the routes are not duplicated.
 
     Args:
         app: the FastAPI instance returned by
@@ -82,6 +155,8 @@ def build_gonka_app(
     """
     # State for both the gating middleware AND the PoC router to read.
     app.state.gonka_gate = gate
+
+    _attach_poc_router(app)
 
     # Install the gating middleware LAST (so it runs FIRST per Starlette's
     # reverse-insertion ordering).
@@ -262,6 +337,21 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    # ``vllm serve MODEL`` stores the positional id in ``model_tag`` and copies
+    # it onto ``args.model`` in ``ServeSubcommand.cmd``. This entrypoint calls
+    # ``make_arg_parser`` directly, so without the copy the engine keeps the
+    # v0.28 default ``Qwen/Qwen3-0.6B`` while the log still shows ``model_tag``.
+    model_tag = getattr(args, "model_tag", None)
+    if model_tag is not None:
+        previous = getattr(args, "model", None)
+        args.model = model_tag
+        if previous != model_tag:
+            logger.info(
+                "gonka-vllm-serve: positional model_tag %s replaces engine "
+                "model %s",
+                model_tag,
+                previous,
+            )
     validate_parsed_serve_args(args)
 
     # Mirror upstream ``api_server.run_server``: translate SIGTERM into the

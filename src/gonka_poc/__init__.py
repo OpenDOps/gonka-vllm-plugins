@@ -10,9 +10,9 @@ surfaces:
 2. ``--worker-extension-cls gonka_poc.worker.PoCWorkerExtension`` exposing
    ``execute_poc_decode`` to vLLM's ``collective_rpc``.
 
-The PoC HTTP routes are registered by the engine itself, in
-``vllm.entrypoints.openai.api_server.build_app`` -- the server is started with
-the stock ``vllm serve`` / ``vllm.entrypoints.openai.api_server`` entry point.
+The PoC HTTP routes are mounted by ``gonka-vllm-serve`` when stock
+``build_app`` has no ``/api/v1/pow`` paths. ``vllm serve`` on an unpatched
+MetaX tree does not register them.
 
 The fork-residual changes (sampler-stack + structured-output) are NOT shipped
 here -- see ``MIGRATION_FROM_FORK.md`` for the disposition of every commit

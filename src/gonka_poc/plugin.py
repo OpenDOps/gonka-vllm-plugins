@@ -48,9 +48,9 @@ def register() -> None:
     the ``--worker-extension-cls gonka_poc.worker.PoCWorkerExtension`` CLI
     flag, which vLLM consumes during ParallelConfig parsing.
 
-    The PoC API routes are registered by the engine itself, in
-    ``vllm.entrypoints.openai.api_server.build_app``; the plugin does not
-    wrap or patch that function.
+    The PoC HTTP routes are mounted by ``gonka-vllm-serve``
+    (``build_gonka_app``) when ``build_app`` did not already register
+    ``/api/v1/pow``. This entry point does not touch FastAPI.
     """
     global _registered
     if _registered:
